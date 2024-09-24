@@ -2,6 +2,8 @@
 <img src="Assets/ai.png" alt="" width="30" height="30">
 
 An advanced, customizable AI Intelligent Systems Prototype application developed using CustomTkinter, TensorFlow, OpenCV, Pandas, and other key technologies for machine learning,  image processing, and more. The project provides tools to upload datasets, train models, make predictions, process images, and deploy AI models via FastAPI.
+
+
 ---
 
 ## Features
