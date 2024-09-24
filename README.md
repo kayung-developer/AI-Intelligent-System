@@ -1,8 +1,7 @@
 # AI Intelligent System
 <img src="Assets/ai.png" alt="" width="30" height="30">
 
-This is an AI-powered system for machine learning, image processing, and model deployment. It provides a user-friendly interface to upload datasets, train AI models, process images, and deploy models via FastAPI.
-
+An advanced, customizable AI Intelligent Systems Prototype application developed using CustomTkinter, TensorFlow, OpenCV, Pandas, and other key technologies for machine learning,  image processing, and more. The project provides tools to upload datasets, train models, make predictions, process images, and deploy AI models via FastAPI.
 ---
 
 ## Features
@@ -14,6 +13,8 @@ This is an AI-powered system for machine learning, image processing, and model d
 - **Model Deployment**: Deploy your trained model via FastAPI for easy integration with other services.
 - **User Management**: Leverages SQLite for storing user data.
 - **3D Visualizations**: Optional support for 3D plots using Plotly.
+- **Advanced Settings**: Customize the AI behavior including mathematical modes, sentiment analysis thresholds, and data sources.
+- **TensorFlow and PCA**: Use deep learning and dimensionality reduction techniques for machine learning tasks.
 
 ---
 
@@ -41,6 +42,23 @@ source venv/bin/activate  # On
 ```bash
 pip install -r requirements.txt
 ```
+
+
+# Dependencies
+Make sure you have the following installed:
+**Python 3.x**
+**CustomTkinter**
+**TensorFlow**
+**OpenCV**
+**Pandas**
+**NumPy**
+**TextBlob**
+**Werkzeug**
+**SQLite**
+**FastAPI**
+**Uvicorn**
+
+Check the requirements.txt for the recommended versions of each package.
 ## Usage
 **To run the AI Intelligent System, execute the following command**:
 ```bash
@@ -60,6 +78,18 @@ model = AIModel()
 result = model.predict(data)
 print(result)
 ```
+## Usage
+Upload a Dataset: Use the "Upload Dataset" button to load CSV or Excel files for training. The system supports multiple file formats for data processing.
+
+Train a Model: Click on the "Train Model" button to initiate training using TensorFlow on your dataset. The system will process the data and train a model based on the input.
+
+Make Predictions: Once the model is trained, use the "Predict" button to test the AI model on new data and get predictions.
+
+Image Processing: Select an image file, and the system will perform image optimization and apply 3D transformations for visualization and analysis.
+
+Deploy the Model: Deploy your AI model via FastAPI by clicking the "Deploy Model via FastAPI" button. This will expose the trained model via an API endpoint for easy integration.
+
+
 
 ## Support
 **If you encounter any issues or have questions, please open an issue on this repository or contact us at [princelillwitty@gmail.com].**
