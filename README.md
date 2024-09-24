@@ -97,7 +97,7 @@ Deploy the Model: Deploy your AI model via FastAPI by clicking the "Deploy Model
 **If you encounter any issues or have questions, please open an issue on this repository or contact us at [princelillwitty@gmail.com].**
 
 ## Development
-**We welcome contributions to the AI Intelligent System project! To contribute**
+**We welcome contributions to the AI Intelligent System project!**
 
 
 ## Future Advancements:
