@@ -1,4 +1,5 @@
 # AI Intelligent System
+<img src="Assets/ai.png" alt="" width="30" height="30">
 
 This is an AI-powered system for machine learning, image processing, and model deployment. It provides a user-friendly interface to upload datasets, train AI models, process images, and deploy models via FastAPI.
 
