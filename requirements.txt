@@ -1,0 +1,16 @@
+# Core dependencies
+CustomTkinter==0.3.4
+tensorflow==2.10.0
+opencv-python==4.6.0.66
+pandas==1.4.3
+numpy==1.23.1
+fastapi==0.85.1
+uvicorn==0.18.2
+werkzeug==2.2.2
+
+# Data processing and machine learning
+scikit-learn==1.1.2
+matplotlib==3.5.2
+seaborn==0.11.2
+textblob==0.17.1
+Pillow==9.2.
