@@ -1,140 +1,137 @@
 # AI Intelligent System
-<img src="Assets/ai.png" alt="" width="30" height="30">
 
-An advanced, customizable AI Intelligent Systems Prototype application developed using CustomTkinter, TensorFlow, OpenCV, Pandas, and other key technologies for machine learning,  image processing, and more. The project provides tools to upload datasets, train models, make predictions, process images, and deploy AI models via FastAPI.
-
+## Overview
+AI Intelligent System is a sophisticated application that integrates artificial intelligence (AI), machine learning (ML), and computer vision to perform advanced data processing, object detection, facial recognition, and human pose estimation. The system leverages modern deep learning models and cutting-edge frameworks such as TensorFlow, PyTorch, MediaPipe, and YOLOv5.
 
 ---
 
 ## Features
-
-- **Upload Dataset**: Easily upload CSV or Excel files for training.
-- **Train AI Models**: Train TensorFlow-based models on your data with a single click.
-- **Make Predictions**: Test the trained model on new data.
-- **Image Processing**: Perform optimization and apply 3D transformations to images.
-- **Model Deployment**: Deploy your trained model via FastAPI for easy integration with other services.
-- **User Management**: Leverages SQLite for storing user data.
-- **3D Visualizations**: Optional support for 3D plots using Plotly.
-- **Advanced Settings**: Customize the AI behavior including mathematical modes, sentiment analysis thresholds, and data sources.
-- **TensorFlow and PCA**: Use deep learning and dimensionality reduction techniques for machine learning tasks.
+- **User Authentication**: Secure login and registration with hashed passwords and profile management.
+- **Object Detection**: Supports MobileNetV2, YOLOv5, and ResNet50 for object detection.
+- **Facial Recognition**: Detects faces and analyzes emotions using DeepFace and Haar cascades.
+- **Pose Estimation**: Utilizes MediaPipe for real-time human pose detection.
+- **Dataset Management**: Upload, train, and predict using custom datasets.
+- **Model Deployment**: Deploy models and visualize results in 2D or 3D.
+- **Custom GUI**: Built with CustomTkinter for an enhanced user experience.
+- **Media Recording**: Record video streams, save images, and export analysis results.
+- **Multi-Model Support**: EfficientNet, Faster-RCNN (soon), and EfficientDet (soon).
 
 ---
 
-## Prerequisites
+## Installation
+### Requirements
+- Python 3.8 or higher
+- TensorFlow
+- PyTorch
+- OpenCV
+- Pandas
+- Numpy
+- Matplotlib
+- CustomTkinter
+- DeepFace
+- Mediapipe
 
-Ensure you have the following software installed before proceeding:
-- Python 3.9+
-- SQLite (included with Python)
-- Git (for version control)
-
-## Setup
-
-1. **Clone the Repository**:
-   Clone this repository to your local machine:
+### Setup
+1. Clone the repository:
    ```bash
    git clone https://github.com/kayung-developer/ai-intelligent-system.git
+   ```
+2. Navigate to the project directory:
+   ```bash
    cd ai-intelligent-system
    ```
-2. **Set up a virtual environment (optional but recommended)**:
-```bash
-python -m venv venv
-source venv/bin/activate  # On
+3. Install required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Download YOLOv5 model:
+   ```bash
+   torch.hub.load('ultralytics/yolov5', 'yolov5s', device='cpu', pretrained=True)
+   ```
+
+---
+
+## How to Run
+1. Launch the main application:
+   ```bash
+   python app.py
+   ```
+2. The application GUI will open, allowing access to different AI modules through the tab view.
+
+---
+
+## Application Structure
 ```
-3. **Install required packages**:
-```bash
-pip install -r requirements.txt
+.
+|-- app.py           # Main application GUI
+|-- main.py          # HomeFrame - Handles dataset upload, model training, and visualization
+|-- vision.py        # VisionFrame - Real-time video processing and object detection
+|-- assets/          # Icons and image assets
+|-- about/           # AboutFrame - Information and documentation
+|-- medical/         # MedicalFrame - Healthcare-related AI models
+|-- finance/         # FraudFrame - Financial fraud detection
+|-- user_data.db     # SQLite Database for user management
+|-- requirements.txt # List of dependencies
 ```
 
+---
 
-# Dependencies
-Make sure you have the following installed:
-**Python 3.x**
-**CustomTkinter**
-**TensorFlow**
-**OpenCV**
-**Pandas**
-**NumPy**
-**TextBlob**
-**Werkzeug**
-**SQLite**
-**FastAPI**
-**Uvicorn**
+## Key Components
+### app.py
+- Initializes the CustomTkinter-based GUI.
+- Handles user authentication, menu navigation, and network management.
+- Dynamically loads frames for object detection, vision processing, and facial recognition.
 
-Check the requirements.txt for the recommended versions of each package.
+### main.py
+- Contains the `HomeFrame` class for managing datasets, model training, and plotting.
+- Supports both 2D and 3D data visualization.
+
+### vision.py
+- Implements the `VisionFrame` class to manage camera streams, detect objects, and analyze human poses in real-time.
+- Supports video recording and saving images from camera streams.
+
+---
+
 ## Usage
-**To run the AI Intelligent System, execute the following command**:
-```bash
-python app.py
-```
-## Here’s how to use the system for [specific task or function]:
+1. **Upload Dataset** - Click on "Upload Dataset" to load a CSV file.
+2. **Train Model** - Train a custom neural network model using the uploaded dataset.
+3. **Object Detection** - Use the camera to detect objects and draw bounding boxes.
+4. **Pose Estimation** - Detect human poses and overlay landmarks on the video feed.
+5. **Facial Recognition** - Identify faces and display emotions.
+6. **Deploy Model** - Deploy trained models to a local server.
 
-```bash
-from ai_intelligent_system import AIModel
-```
-# Initialize the model
-```bash
-model = AIModel()
-```
-# Example usage
-```bash
-result = model.predict(data)
-print(result)
-```
-## Usage
-Upload a Dataset: Use the "Upload Dataset" button to load CSV or Excel files for training. The system supports multiple file formats for data processing.
-
-Train a Model: Click on the "Train Model" button to initiate training using TensorFlow on your dataset. The system will process the data and train a model based on the input.
-
-Make Predictions: Once the model is trained, use the "Predict" button to test the AI model on new data and get predictions.
-
-Image Processing: Select an image file, and the system will perform image optimization and apply 3D transformations for visualization and analysis.
-
-Deploy the Model: Deploy your AI model via FastAPI by clicking the "Deploy Model via FastAPI" button. This will expose the trained model via an API endpoint for easy integration.
-
-
-
-## Support
-**If you encounter any issues or have questions, please open an issue on this repository or contact us at [princelillwitty@gmail.com].**
-
-## Development
-**We welcome contributions to the AI Intelligent System project!**
-
-
-## Future Advancements:
-
-- Advanced Model Integration: Add ResNet, EfficientDet, and more models.
-
-- Gesture Recognition & Voice Control: Hands-free AI interaction.
-
-- Facial Recognition & Emotion Analysis.
-
-- Data Logging & Reports Export.
-
-- Cross-Device Synchronization & Augmented Reality (AR) integration.
-  
-
-## Cross-Platform Accessibility:
-
-- Windows & Mac: Use PyInstaller for standalone apps.
-
-- Linux: Create .deb or .rpm packages.
-
-- iOS/Android: Port using Kivy or BeeWare.
-
-- Cloud: Deploy on AWS, Azure, or GCP for global access.
-
-- Web: Build a web app with Flask/Django & TensorFlow.js
-
-These upgrades will enhance functionality and make the software accessible on any platform.
-
+---
 
 ## Screenshots
-**Here are some of a few screenshots of the application**:
+![Home Page](frontend/AI1.png)
+![About](frontend/about.png)
+![2D Plot](frontend/AI2.png)
+![3D Plot](frontend/AI3D1.png)
+![Complete Human System](frontend/complete_human_system.png)
+![Different Clothing](frontend/different_cloth.png)
+![Incomplete Human System](frontend/incomplete_system.png)
+![Predicting Model](frontend/predicted.png)
+![Training Model](frontend/predicted.png)
+![]
+---
 
-| Feature            | Screenshots                                     |
-|--------------------|-------------------------------------------------|
-| Main Interface      | ![Main Interface](screenshots/3Dview.png)      |
-| Image Processing    | ![Image Processing](screenshots/cv.png)          |
-| Settings Page       | ![Settings Page](screenshots/settings.png) |
+## Future Enhancements
+- **EfficientDet Integration**
+- **Faster-RCNN Support**
+- **Augmented Reality (AR) Module**
+- **Multi-Person Tracking**
 
-**Check Screenshot folder for all images**
+---
+
+## Acknowledgements
+- [YOLOv5 by Ultralytics](https://github.com/ultralytics/yolov5)
+- [TensorFlow](https://www.tensorflow.org/)
+- [PyTorch](https://pytorch.org/)
+- [MediaPipe](https://mediapipe.dev/)
+- [DeepFace](https://github.com/serengil/deepface)
+
+---
+
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
+

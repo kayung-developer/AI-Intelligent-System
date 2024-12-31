@@ -5,20 +5,38 @@ import subprocess
 import threading
 import time
 import webbrowser
+import json
+from logging import root
 
 import customtkinter as ctk
-from tkinter import filedialog, messagebox, Toplevel, StringVar, Entry, Menu, Image, PhotoImage
+from tkinter import filedialog, messagebox, Toplevel, StringVar, Entry, Menu, Image, PhotoImage, BooleanVar
 
+import tf_keras
 from PIL import Image as PILImage, ImageTk
+from PIL import Image, ImageTk
 
 import numpy as np
 import pandas as pd
 import cv2
 import tensorflow as tf
+from deepface import DeepFace
+from reportlab.lib.colors import white, black
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from werkzeug.security import generate_password_hash, check_password_hash
 import matplotlib
+
+from efficientnet_pytorch import EfficientNet
+
+from about.about import AboutFrame
+from finance.finance import FraudFrame
+from medical.medical import MedicalFrame
+from medical.medicaltest import AdvancedMedical
+from finance.financetest import AdvancedFraud
+from vision.imagify import ImagifyFrame
+from vision.vision import VisionFrame
+from face.facial import FacialFrame
+from assets import *
 
 matplotlib.use('Agg')  # Use a non-interactive backend for compatibility
 import matplotlib.pyplot as plt
@@ -29,175 +47,222 @@ import cv2
 import threading
 import mediapipe as mp
 from CTkMenuBar import *
+import torch
 
 
 # Initialize CustomTkinter GUI
-#ctk.set_appearance_mode("Dark")
-#ctk.set_default_color_theme("black")
+# ctk.set_appearance_mode("Dark")
+# ctk.set_default_color_theme("black")
 
 # Initialize SQLite database
 db_path = "user_data.db"
 conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
+
+# Update the table creation query to include the new columns
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
+        hashed_password TEXT NOT NULL, 
+        email TEXT,
+        phone TEXT,
+        dob TEXT,
+        address TEXT,
+        profile_image TEXT  -- New column for storing the profile image path
     )
 ''')
 conn.commit()
 
+# Load MobileNetV2 model and labels for object detection
+LABELS = np.array(open("imagenet_labels.txt").read().splitlines())
+
+# Disable TensorFlow OneDNN custom ops for cleaner logs
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+# Load YOLOv5 model from the Ultralytics repository (online method)
+YOLO_MODEL = torch.hub.load('ultralytics/yolov5', 'yolov5s', device='cpu', pretrained=True)
+
 # Initialize MediaPipe for body detection
 mp_drawing = mp.solutions.drawing_utils
 mp_pose = mp.solutions.pose
+mp_hands = mp.solutions.hands
 
 # Load MobileNetV2 model and labels for object detection
-MODEL_MOBILENET = tf.keras.applications.mobilenet_v2.MobileNetV2(weights="imagenet", include_top=True)
-LABELS = np.array(open("imagenet_labels.txt").read().splitlines())
+MODEL_MOBILENET = tf_keras.applications.mobilenet_v2.MobileNetV2(weights="imagenet", include_top=True)
 
-# Load YOLOv5 model (assuming it is already set up)
-YOLO_MODEL = YOLOv5('yolov5s.pt', device='cpu')
+# Load ResNet50 for image classification
+MODEL_RESNET = tf_keras.applications.ResNet50(weights="imagenet")
+
+efficientdet_model = EfficientNet.from_pretrained('efficientnet-b0')
+FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+#Faster_RCNN = torch.hub.load('pytorch/vision:v0.10.0', 'fasterrcnn_resnet50_fpn', pretrained=True)
+
+
+try:
+    LABELS = np.array(open("imagenet_labels.txt").read().splitlines())
+except FileNotFoundError:
+    LABELS = np.array([])
+    font_color = "#FFFFFF"  # Default font color (white for dark theme)
+
 
 class AIApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("AI Intelligent System")
-        self.geometry("1000x700")
+        self.geometry("1080x900")
         self.resizable(False, False)
 
-        # Default settings
-        self.settings = {
-            "sentiment_threshold": 0.1,
-            "network_enabled": True,
-            "developer_mode": False,
-            "secure_server": False,
-            "enable_3d_analysis": False
-        }
 
-        # Variables
-        self.model_type = "MobileNetV2"  # Default to MobileNetV2
-        self.video_capture = None  # Camera object for OpenCV
-        self.pose = mp_pose.Pose()
-        # Variables
-
-
-        # Initialize dataset and model
-        self.dataset = None
-        self.model = None
-
-
-        #theme
-        ctk.set_appearance_mode("dark")
-
-        #app icon
         self.app_icon()
-        #ai_vision.AIApp.create_ui()
+        self.check_login_state()
+        self.theme_color = "dark"  # Default theme
+        self.load_theme("theme_settings.json")  # Load the theme if saved
+
+        # Create the TabBar
+        self.tab_bar = ctk.CTkTabview(self, width=850, height=550, corner_radius=10, fg_color="white")
+        self.tab_bar.pack(fill="both", expand=True, padx=20, pady=20)
+
+
+
+        # Set custom styling for the tabs
+        self.tab_bar.tab_button_width = 200  # Wider tab buttons # Tab text and hover color
+        self.tab_bar.tab_button_height = 40
+        self.tab_bar.tab_button_spacing = 10  # Add spacing between the tabs
+        self.tab_bar.tab_button_color = "#f0f0f0"  # Inactive tab color
+        self.tab_bar.tab_button_hover_color = "#dcdcdc"  # Hover tab color
+        self.tab_bar.tab_button_active_color = "#3498db"  # Active tab color
+        self.tab_bar.text_font = ("Arial", 14)  # Font for the tab labels
+
+        self.tab_bar.add("Home")
+        self.tab_bar.add("Open Vision")
+        self.tab_bar.add("Imagify")
+        self.tab_bar.add("Facial")
+        self.tab_bar.add("About")
+        # self.tab_bar.add("AR")
+        self.network_on_img = self.load_image("assets\\connection.png")  # Make image smaller
+        self.network_off_img = self.load_image("assets\\no-connection.png")
+
+        # Main Screen
+
+        self.main_tab = HomeFrame(self.tab_bar.tab("Home"))
+        self.main_tab.pack(fill="both", expand=True)
+
+        # Vision Screen
+        self.vision_tab = VisionFrame(self.tab_bar.tab("Open Vision"))
+        self.vision_tab.pack(fill="both", expand=True)
+
+
+
+        # Imagiify Screen
+        self.imagify_tab = ImagifyFrame(self.tab_bar.tab("Imagify"))
+        self.imagify_tab.pack(fill="both", expand=True)
+
+        # Facial Screen
+        self.facial_tab = FacialFrame(self.tab_bar.tab("Facial"))
+        self.facial_tab.pack(fill="both", expand=True)
+
+        # About Screen
+        self.about_tab = AboutFrame(self.tab_bar.tab("About"))
+        self.about_tab.pack(fill="both", expand=True)
+
+        self.tab_bar.set("Home")
+
+        # theme
+        ctk.set_appearance_mode("dark")
         # Create the main layout
         self.create_menu_bar()
-        self.create_main_frames()
-        self.create_bottom_buttons()
-        self.create_matplotlib_plot()
-        self.create_3d_view()
         self.font = ctk.ThemeManager.theme["CTkFont"]["family"]
-
-    def app_icon(self):
-        if self.tk.call('tk', 'windowingsystem') == 'x11':  # For Linux and macOS
-           # img = Image.open("custom_icon.png")
-            img = PILImage.open("ai.png")
-            self.tk.call('wm', 'iconphoto', self._w, ImageTk.PhotoImage(img))
-        else:  # For Windows
-            self.iconbitmap("ai.ico")
-
-    def create_main_frames(self):
-        # Main frame divided into top, center, and bottom frames
-        self.top_frame = ctk.CTkFrame(self, width=800, height=50)
-        self.top_frame.pack(side="top", fill="x")
-
-        self.center_frame = ctk.CTkFrame(self, width=800, height=500)
-        self.center_frame.pack(side="top", fill="both", expand=True)
-
-        self.bottom_frame = ctk.CTkFrame(self, width=900, height=100)
-        self.bottom_frame.pack(side="bottom", fill="x", expand=True)
-
-        self.slogan = ctk.CTkFrame(self, width=900, height=100)
-        self.slogan.pack(side="bottom", fill="x", expand=True)
-
         self.menu_frame = ctk.CTkFrame(self)
+
         self.menu_frame.pack(side="top", fill="x")
-
-        # Header Label
-        self.label_header = ctk.CTkLabel(self.top_frame, text="AI Intelligent System is an automated Artificial intelligence, Machine Learning and Computer Vision Prototype with aim in using Matplotlib, OpenCV, Modeling Analysis for AI's", font=("Arial", 12))
-        self.label_header.pack(side="bottom", pady=10)
         # Footer Label
-
-
-    def create_bottom_buttons(self):
-        # Load images for buttons
-        self.cv_image = self.load_image("vision.png")
-        self.deploy_image = self.load_image("deploy.png")
-        self.display_image = self.show_image("chatbot.png")
-        self.upload_image = self.load_image("upload.png")
-        self.train_image = self.load_image("train.png")
-        self.predict_image = self.load_image("predict.png")
-        self.save_image = self.load_image("save.png")
-        self.load_model_image = self.load_image("load.png")
-        self.network_on_img = self.load_image("connection.png")  # Make image smaller
-        self.network_off_img = self.load_image("no-connection.png")
-
-        # Styled Buttons with Images
-        self.btn_upload_data = ctk.CTkButton(self.bottom_frame, text="Upload Dataset", image=self.upload_image,
-                                             compound="left", command=self.upload_dataset)
-        self.btn_upload_data.pack(side="left", padx=5, pady=5)
-
-        self.btn_train_model = ctk.CTkButton(self.bottom_frame, text="Train Model", image=self.train_image, compound="left",
-                                             command=self.train_model)
-        self.btn_train_model.pack(side="left", padx=5, pady=5)
-
-        self.btn_predict = ctk.CTkButton(self.bottom_frame, text="Predict", image=self.predict_image, compound="left",
-                                         command=self.predict_data)
-        self.btn_predict.pack(side="left", padx=5, pady=5)
-
-        self.btn_load_model = ctk.CTkButton(self.bottom_frame, text="Load Model", image=self.load_model_image, compound="left",
-                                            command=self.load_model)
-        self.btn_load_model.pack(side="left", padx=5, pady=5)
-
-        self.btn_deploy_model = ctk.CTkButton(self.bottom_frame, text="Deploy Model", image=self.deploy_image,
-                                              compound="left", command=self.deploy_model)
-        self.btn_deploy_model.pack(side="left", padx=5, pady=5)
-
-        # Advanced Computer Vision Button
-        self.cv_button = ctk.CTkButton(self.bottom_frame, text="Computer Vision", image=self.cv_image,
-                                       compound="right", command=self.launch_vision)
-        self.cv_button.pack(side="right", padx=5, pady=5)
-
-        self.label_footer = ctk.CTkLabel(self.slogan, text="Developed By Slogan Technologies", font=("Arial", 12))
-        self.label_footer.pack(side="bottom", padx=5, pady=5)
 
         # Create a switch for theme selection
         self.theme_switch = ctk.CTkSwitch(self.menu_frame, text="", command=self.toggle_theme)
         self.theme_switch.pack(side="right", padx=20)
 
+        # Set switch state based on current theme
+        if self.theme_color == "dark":
+            self.theme_switch.select()  # Dark mode is selected by default
+        else:
+            self.theme_switch.deselect()  # Light mode is deselected
 
         # Create a button for network "Off" and position it in the bottom right corner
+        # Create a button for network "Off" and position it in the top right corner of the menu bar
         self.network_image_label = ctk.CTkLabel(
-            self.menu_frame, image=self.network_off_img,
+            self.menu_frame,
+            image=self.network_off_img,
             cursor="hand2"  # Change cursor to hand to indicate it's clickable
-        ).configure(text="")
-        self.network_image_label.pack(side="right", padx=5)
+        )
+        self.network_image_label.configure(text="")
 
+        # Bind the click event to the toggle_network method
         self.network_image_label.bind("<Button-1>", self.toggle_network)
+
+        # Position the label in the top right corner of the menu frame
+        self.network_image_label.place(relx=1.0, rely=0.0, anchor='ne')  # 'ne' = north-east (top-right)
 
         # Track the network status (Off by default)
         self.network_on = False
         self.check_network_status()
 
+    def app_icon(self):
+        if self.tk.call('tk', 'windowingsystem') == 'x11':  # For Linux and macOS
+            # img = Image.open("assets\\custom_icon.png")
+            img = PILImage.open("assets\\ai.png")
+            self.tk.call('wm', 'iconphoto', self._w, ImageTk.PhotoImage(img))
+        else:  # For Windows
+            self.iconbitmap("assets\\ai.ico")
+
     def toggle_theme(self):
-        """Toggles between light and dark themes based on the switch state."""
-        if self.theme_switch.get():
-            ctk.set_appearance_mode("light")
-        else:
+        """Switch between light and dark themes."""
+        if self.theme_switch.get() == 1:  # Dark mode is on
+            self.theme_color = "dark"
+            self.font_color = "white"  # White font for dark mode
             ctk.set_appearance_mode("dark")
+        else:  # Light mode is on
+            self.theme_color = "light"
+            self.font_color = "black"  # Black font for light mode
+            ctk.set_appearance_mode("light")
+
+        # Apply the changes to the current window
+        self.apply_theme()
+
+    def save_theme(self, filename):
+        """Save the current theme settings to a JSON file."""
+        theme_settings = {
+            "color": self.theme_color,
+            "font_color": self.font_color
+        }
+        with open(filename, 'w') as f:
+            json.dump(theme_settings, f)
+
+    def load_theme(self, filename):
+        """Load the theme settings from a JSON file."""
+        try:
+            with open(filename, 'r') as f:
+                theme_settings = json.load(f)
+            self.theme_color = theme_settings.get("color", "dark")
+            self.font_color = theme_settings.get("font_color", "#FFFFFF")
+            self.apply_theme()
+        except FileNotFoundError:
+            print("Theme settings not found, using default theme.")
+
+    def apply_theme(self):
+        """Apply the theme settings to the current window."""
+
+    # self.some_label.configure(text_color=self.font_color)
+
+    def save_theme_button_clicked(self):
+        """Button callback to save the theme."""
+        self.save_theme("theme_settings.json")
+
+    def load_theme_button_clicked(self):
+        """Button callback to load the theme."""
+        self.load_theme("theme_settings.json")
+
     def toggle_network(self, event=None):
         """Toggle the network status between on and off."""
         if self.network_on:
@@ -252,171 +317,38 @@ class AIApp(ctk.CTk):
             os.system("sudo ifconfig eth0 up")
             print("Network enabled.")
 
-    def launch_vision(self):
-        self.vision = IntelligentSystemApp(self)  # Pass a reference of AIApp to IntelligentSystemApp
-        self.vision.mainloop()
-
-    def create_matplotlib_plot(self):
-
-        # Create a Matplotlib figure and canvas
-        self.figure = plt.Figure(figsize=(5, 4), dpi=100)
-        self.plot = self.figure.add_subplot(111)
-        self.plot.plot([], [])  # Empty plot at the beginning
-        self.canvas = FigureCanvasTkAgg(self.figure, master=self.center_frame)
-        self.canvas.get_tk_widget().pack(side="top", fill="both", expand=True)
-
-    def create_3d_view(self):
-        # Create a 3D Matplotlib figure
-        self.figure_3d = plt.Figure(figsize=(5, 4), dpi=100)
-        self.ax_3d = self.figure_3d.add_subplot(111, projection='3d')
-
-        # Example data for 3D plot
-        self.ax_3d.plot([0, 1], [0, 1], [0, 1])
-        self.canvas_3d = FigureCanvasTkAgg(self.figure_3d, master=self.center_frame)
-        self.canvas_3d.get_tk_widget().pack(side="top", fill="both", expand=True)
-        self.canvas_3d.get_tk_widget().pack_forget()  # Hide initially
-
-
-    def display_image(self, image_path):
-        image = PILImage.open(image_path)
-        photo = ImageTk.PhotoImage(image)
-        self.image_label.configure(image=photo)
-        self.image_label.image = photo
-
-    def show_image(self, image_path):
-        """Displays the image in the right frame."""
-        img = PILImage.open(image_path)  # Open the image using PIL
-        return ctk.CTkImage(light_image=img, dark_image=img, size=(300, 300))
-
-    def load_image(self, path):
-        """Loads an image and converts it to a CTkImage object."""
-        img = PILImage.open(path)  # Open the image using PIL
-        return ctk.CTkImage(light_image=img, dark_image=img, size=(20, 20))
-
     def create_menu_bar(self):
 
         file_menu = CTkMenuBar(self)
         file_bar = file_menu.add_cascade("File")
-        about_bar = file_menu.add_cascade("About")
-        account_bar = file_menu.add_cascade("Account")
+        account_bar = file_menu.add_cascade("Profile")
+        others_bar = file_menu.add_cascade("Website")
         server_bar = file_menu.add_cascade("Server")
-        settings_bar = file_menu.add_cascade("Settings")
-        help_bar = file_menu.add_cascade("Help")
-
 
         file_menu = CustomDropdownMenu(widget=file_bar)
-        file_menu.add_option(option="Upload Dataset", command=self.upload_dataset)
+        file_menu.add_option(option="Upload Dataset", command=self.upload_data)
         file_menu.add_option(option="Create New Project", command=self.create_new_project)
         file_menu.add_option(option="Download Report", command=self.generate_report)
-        file_menu.add_option(option="Exit", command=self.quit)
-        file_menu.add_option(option="Save Model", command=self.save_model)
+        file_menu.add_option(option="Exit", command=self.destroy)
+        file_menu.add_option(option="Save Model", command=self.save)
 
-
-        file_menu = CustomDropdownMenu(widget=about_bar)
-        file_menu.add_option(option="Other Projects", command=self.our_projects)
-        file_menu.add_option(option="About US", command=self.open_about_window)
+        file_menu = CustomDropdownMenu(widget=others_bar)
+        file_menu.add_option(option="Website", command=self.our_website)
 
         file_menu = CustomDropdownMenu(widget=account_bar)
         file_menu.add_option(option="Register", command=self.user_register)
         file_menu.add_option(option="Login", command=self.user_login)
 
         file_menu = CustomDropdownMenu(widget=server_bar)
-        file_menu.add_option(option="Deploy", command=self.deploy_model)
+        file_menu.add_option(option="Deploy", command=self.deploy)
 
-        file_menu = CustomDropdownMenu(widget=settings_bar)
-        file_menu.add_option(option="Settings", command=self.open_settings)
+    def upload_data(self):
+        HomeFrame(master=self).upload_dataset()
+    def deploy(self):
+        HomeFrame(master=self).deploy_model()
 
-        file_menu = CustomDropdownMenu(widget=help_bar)
-        file_menu.add_option(option="Help", command=self.open_help_guide)
-
-
-    def open_settings(self):
-        settings_window = Toplevel(self)
-        settings_window.title("Settings")
-        settings_window.geometry("400x400")
-        settings_window.resizable(False, False)
-        self.app_icon()
-
-        # Configure grid layout with two columns
-        settings_window.grid_columnconfigure(0, weight=1)  # Left column (labels)
-        settings_window.grid_columnconfigure(1, weight=1)  # Right column (entries/switches)
-
-        # Settings for sentiment threshold
-        self.sentiment_threshold_var = StringVar(value=str(self.settings["sentiment_threshold"]))
-        ctk.CTkLabel(settings_window, text="Sentiment Threshold:").grid(row=0, column=0, sticky="w", padx=10, pady=5)
-        self.sentiment_threshold_entry = ctk.CTkEntry(settings_window, textvariable=self.sentiment_threshold_var)
-        self.sentiment_threshold_entry.grid(row=0, column=1, sticky="e", padx=10, pady=5)
-
-        # Switch to disable/allow networks
-        self.network_enabled_var = ctk.IntVar(value=int(self.settings["network_enabled"]))
-        self.network_switch = ctk.CTkCheckBox(settings_window, text="",
-                                              variable=self.network_enabled_var)
-        ctk.CTkLabel(settings_window, text="Network:").grid(row=1, column=0, sticky="w", padx=10, pady=5)
-        self.network_switch.grid(row=1, column=1, sticky="e", padx=10, pady=2)
-
-        # Developer options
-        self.developer_mode_var = ctk.IntVar(value=int(self.settings["developer_mode"]))
-        self.developer_switch = ctk.CTkCheckBox(settings_window, text="",
-                                                variable=self.developer_mode_var)
-        ctk.CTkLabel(settings_window, text="Developer Mode:").grid(row=2, column=0, sticky="w", padx=10, pady=5)
-        self.developer_switch.grid(row=2, column=1, sticky="e", padx=10, pady=2)
-
-        # Secure model server
-        self.secure_server_var = ctk.IntVar(value=int(self.settings["secure_server"]))
-        self.secure_server_switch = ctk.CTkCheckBox(settings_window, text="",
-                                                    variable=self.secure_server_var)
-        ctk.CTkLabel(settings_window, text="Secure Model Server:").grid(row=3, column=0, sticky="w", padx=10, pady=5)
-        self.secure_server_switch.grid(row=3, column=1, sticky="e", padx=10, pady=2)
-
-        # Allow 3D/2D analysis
-        self.enable_3d_analysis_var = ctk.IntVar(value=int(self.settings["enable_3d_analysis"]))
-        self.enable_3d_switch = ctk.CTkCheckBox(settings_window, text="",
-                                                variable=self.enable_3d_analysis_var, command=self.toggle_3d_view)
-        ctk.CTkLabel(settings_window, text="3D Analysis:").grid(row=4, column=0, sticky="w", padx=10, pady=5)
-        self.enable_3d_switch.grid(row=4, column=1, sticky="e", padx=10, pady=2)
-
-        # Save Settings Button
-        save_button = ctk.CTkButton(settings_window, text="Save Settings", command=self.save_settings)
-        save_button.grid(row=5, column=0, columnspan=2, pady=10)
-
-    def toggle_3d_view(self):
-        if self.enable_3d_analysis_var.get():
-            # Show 3D plot and hide 2D plot
-            self.canvas.get_tk_widget().pack_forget()
-            self.canvas_3d.get_tk_widget().pack(side="top", fill="both", expand=True)
-        else:
-            # Show 2D plot and hide 3D plot
-            self.canvas_3d.get_tk_widget().pack_forget()
-            self.canvas.get_tk_widget().pack(side="top", fill="both", expand=True)
-
-    def save_settings(self):
-        self.settings["sentiment_threshold"] = float(self.sentiment_threshold_var.get())
-        self.settings["network_enabled"] = bool(self.network_enabled_var.get())
-        self.settings["developer_mode"] = bool(self.developer_mode_var.get())
-        self.settings["secure_server"] = bool(self.secure_server_var.get())
-        self.settings["enable_3d_analysis"] = bool(self.enable_3d_analysis_var.get())
-        messagebox.showinfo("Settings", "Settings saved successfully!")
-
-
-    def upload_dataset(self):
-        file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("Excel files", "*.xlsx")])
-        if file_path:
-            try:
-                if file_path.endswith(".csv"):
-                    self.dataset = pd.read_csv(file_path)
-                elif file_path.endswith(".xlsx"):
-                    self.dataset = pd.read_excel(file_path)
-                messagebox.showinfo("Dataset Upload", "Dataset uploaded successfully!")
-                self.plot_data()
-            except Exception as e:
-                messagebox.showerror("Upload Error", f"Failed to upload dataset: {e}")
-        else:
-            messagebox.showwarning("Warning", "No file selected.")
-    def plot_data(self):
-        if self.data is not None:
-            self.ax.clear()
-            self.ax.plot(self.data.iloc[:, 0], self.data.iloc[:, 1], "bo")
-            self.canvas.draw()
+    def save(self):
+        HomeFrame(master=self).save_model()
 
     def open_project(self):
         project_file = filedialog.askopenfilename(title="Open Project", filetypes=[("Text Files", "*.txt")])
@@ -428,7 +360,6 @@ class AIApp(ctk.CTk):
         if project_file:
             # Add logic to delete the project file
             messagebox.showinfo("Project Deleted", f"Project '{project_file}' has been deleted.")
-
 
     def create_new_project(self):
         project_name = filedialog.asksaveasfilename(title="Project", defaultextension=".txt")
@@ -446,417 +377,405 @@ class AIApp(ctk.CTk):
 
     def our_website(self):
         webbrowser.open("https://sites.google.com/view/slogantechnologies")
+
     def open_help_guide(self):
         webbrowser.open("http://www.helpguide.com")
-
-    def show_about(self):
-        """ Show the About window """
-        about_window = ctk.CTkToplevel(self)
-        about_window.title("About US")
-        about_window.geometry("600x400")
-
-        # About content
-        about_content = (
-            "Slogan Technologies LLC is a Nigerian-based startup ai and robotics development firm.\n"
-            "We specialize in AI, ML, CV, Software Development, Web Development, Cybersecurity, and Technology Education.\n"
-            "Our focus is on pushing the boundaries of AI and Robotics, aiming to bring Africa to the forefront of technological advancements.\n\n"
-            "Empowering Africa through Technological Innovation\n"
-            "Slogan Technologies LLC, incorporated on January 24th, 2024, is a pioneering AI software development company specializing in AI Development, Machine Learning, Computer Vision, Web Development, Applications Development, and Game Development.\n"
-            "Our innovative solutions are designed to drive significant advancements across various sectors, fostering job opportunities, technological growth, business transformation, medical improvements, agricultural infrastructure, and educational support for Africans.\n\n"
-            "Fostering Job Opportunities\n"
-            "Our focus on cutting-edge AI and software development creates a plethora of high-skilled job opportunities, empowering local talent to engage in meaningful and impactful work.\n"
-            "By nurturing a pool of skilled professionals, we contribute to reducing unemployment and enhancing the economic stability of communities.\n\n"
-            "Driving Technological Growth\n"
-            "Through our commitment to AI and machine learning, we are at the forefront of technological advancements.\n"
-            "Our projects and research pave the way for new innovations, helping Africa to become a significant player in the global tech landscape.\n"
-            "This growth fosters a tech-savvy culture and encourages continuous learning and development.\n\n"
-            "Transforming Businesses\n"
-            "Our expertise in web and application development provides businesses with advanced tools and platforms to streamline operations, enhance customer experiences, and boost productivity.\n"
-            "By leveraging our technologies, businesses can achieve greater efficiency, scalability, and competitiveness in the market.\n\n"
-            "Improving Medical Infrastructure\n"
-            "Incorporating AI and computer vision into medical applications enables precise diagnostics, personalized treatment plans, and efficient patient care.\n"
-            "Our developments in medical technology aim to improve healthcare accessibility and outcomes, leading to healthier communities and a stronger healthcare system.\n\n"
-            "Enhancing Agricultural Infrastructure\n"
-            "Our AI-driven solutions in agriculture help optimize crop management, enhance yield predictions, and improve resource utilization.\n"
-            "By implementing smart agricultural practices, we contribute to food security and sustainable farming, essential for the economic well-being of rural areas.\n\n"
-            "Supporting Education\n"
-            "We are dedicated to creating educational tools and platforms that leverage AI and interactive technologies.\n"
-            "These resources provide accessible and quality education to students across Africa, fostering a culture of innovation and learning.\n"
-            "By empowering the next generation with knowledge and skills, we contribute to the continent's socio-economic development.\n\n"
-            "At Slogan Technologies LLC, we are committed to leveraging our expertise to drive transformative change across various sectors, ultimately contributing to a brighter and more prosperous future for Africa.\n\n"
-            "Copyrights (C) 2024. Slogan Technologies\n"
-        )
-
-        # Create and place a label with the about content
-        about_label = ctk.CTkLabel(about_window, text=about_content, anchor="w", padx=10, pady=10)
-        about_label.pack(fill="both", expand=True)
     def user_register(self):
-        register_window = Toplevel(self)
+        """Open the User Registration window with extended features."""
+        register_window = ctk.CTkToplevel(self)
         register_window.title("Register")
-        register_window.geometry("400x400")
+        register_window.geometry("500x500")
         register_window.resizable(False, False)
 
-        ctk.CTkLabel(register_window, text="Username:").pack(pady=5)
-        self.register_username = ctk.CTkEntry(register_window)
-        self.register_username.pack(pady=5)
+        # Set the window icon
+        register_window.iconbitmap('ai.ico')  # Replace with your icon path
 
-        ctk.CTkLabel(register_window, text="Password:").pack(pady=5)
-        self.register_password = ctk.CTkEntry(register_window, show="*")
-        self.register_password.pack(pady=5)
+        # Load the saved theme for the new window
+        self.load_theme("theme_settings.json")
 
-        register_button = ctk.CTkButton(register_window, text="Register", command=self.register_user)
-        register_button.pack(pady=10)
+        # Apply the loaded theme
+        self.apply_theme()
+
+        # Center image (above username/password fields)
+        app_logo = self.load_images("assets\\account.png", size=(100, 100))
+        logo_label = ctk.CTkLabel(register_window, image=app_logo, text="")  # Image with no text
+        logo_label.image = app_logo
+        logo_label.pack(pady=20)
+
+        form_frame = ctk.CTkFrame(register_window)
+        form_frame.pack(pady=20)
+
+        # Username
+        ctk.CTkLabel(form_frame, text="Username:", text_color=self.font_color).grid(row=0, column=0, padx=10, pady=5,
+                                                                                    sticky="w")
+        self.register_username = ctk.CTkEntry(form_frame)
+        self.register_username.grid(row=0, column=1, padx=10, pady=5)
+
+        # Email Address
+        ctk.CTkLabel(form_frame, text="Email Address:", text_color=self.font_color).grid(row=1, column=0, padx=10,
+                                                                                         pady=5, sticky="w")
+        self.register_email = ctk.CTkEntry(form_frame)
+        self.register_email.grid(row=1, column=1, padx=10, pady=5)
+
+        # Phone Number
+        ctk.CTkLabel(form_frame, text="Phone Number:", text_color=self.font_color).grid(row=2, column=0, padx=10,
+                                                                                        pady=5, sticky="w")
+        self.register_phone = ctk.CTkEntry(form_frame)
+        self.register_phone.grid(row=2, column=1, padx=10, pady=5)
+
+        # Date of Birth
+        ctk.CTkLabel(form_frame, text="Date of Birth:", text_color=self.font_color).grid(row=3, column=0, padx=10,
+                                                                                         pady=5, sticky="w")
+        self.register_dob = ctk.CTkEntry(form_frame)
+        self.register_dob.grid(row=3, column=1, padx=10, pady=5)
+
+        # Location Address
+        ctk.CTkLabel(form_frame, text="Location Address:", text_color=self.font_color).grid(row=4, column=0, padx=10,
+                                                                                            pady=5, sticky="w")
+        self.register_address = ctk.CTkEntry(form_frame)
+        self.register_address.grid(row=4, column=1, padx=10, pady=5)
+
+        # Password
+        ctk.CTkLabel(form_frame, text="Password:", text_color=self.font_color).grid(row=5, column=0, padx=10, pady=5,
+                                                                                    sticky="w")
+        self.register_password = ctk.CTkEntry(form_frame, show="*")
+        self.register_password.grid(row=5, column=1, padx=10, pady=5)
+
+        # Terms and conditions checkbox
+        self.terms_var = ctk.IntVar()
+        terms_checkbox = ctk.CTkCheckBox(form_frame, text="I agree to the Terms and Conditions",
+                                         variable=self.terms_var)
+        terms_checkbox.grid(row=6, columnspan=2, padx=10, pady=5)
+
+        # Register button centered at the bottom
+        register_button = ctk.CTkButton(form_frame, text="Register", command=self.register_user)
+        register_button.grid(row=8, columnspan=2, pady=20)
 
     def register_user(self):
+        """Handle user registration logic."""
         username = self.register_username.get()
         password = self.register_password.get()
+        email = self.register_email.get()
+        phone = self.register_phone.get()
+        dob = self.register_dob.get()
+        address = self.register_address.get()
         hashed_password = generate_password_hash(password, method='sha256')
 
+        # Check if terms and conditions are accepted
+        if not self.terms_var.get():
+            messagebox.showerror("Error", "You must accept the Terms and Conditions to register.")
+            return
+
         try:
-            cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
+            # Insert user data into the database
+            cursor.execute("""
+                INSERT INTO users (username, hashed_password, email, phone, dob, address) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, hashed_password, email, phone, dob, address))
             conn.commit()
             messagebox.showinfo("Success", "User registered successfully!")
         except sqlite3.IntegrityError:
-            messagebox.showerror("Error", "Username already exists!")
+            messagebox.showerror("Error", "Username or email already exists!")
 
     def user_login(self):
-        login_window = Toplevel(self)
+        # Create a new top-level window for login
+        login_window = ctk.CTkToplevel(self)
         login_window.title("Login")
         login_window.geometry("400x400")
         login_window.resizable(False, False)
-        ctk.CTkImage()
 
-        ctk.CTkLabel(login_window, text="Username:").pack(pady=5)
+        # Load theme and set app icon
+        self.load_theme("theme_settings.json")
+        # self.app_icon(login_window)
+        login_window.iconbitmap('assets\\ai.ico')
+
+        # Apply the loaded theme
+        self.apply_theme()
+
+        # Set background image
+        #bg_image = self.load_images("assets\\account.png", size=(400, 400))
+        #bg_label = ctk.CTkLabel(login_window, image=bg_image)
+        #bg_label.image = bg_image  # Keep reference to avoid garbage collection
+        #bg_label.place(x=0, y=0, relwidth=1, relheight=1)  # Set image to cover the entire window
+
+        # Center image (above username/password fields)
+        app_logo = self.load_images("assets\\account.png", size=(100, 100))
+        logo_label = ctk.CTkLabel(login_window, image=app_logo, text="")  # Image with no text
+        logo_label.image = app_logo
+        logo_label.pack(pady=20)
+
+        # Username and password fields
+        ctk.CTkLabel(login_window, text="Username:", text_color=self.font_color).pack(pady=5)
         self.login_username = ctk.CTkEntry(login_window)
         self.login_username.pack(pady=5)
 
-        ctk.CTkLabel(login_window, text="Password:").pack(pady=5)
+        ctk.CTkLabel(login_window, text="Password:", text_color=self.font_color).pack(pady=5)
         self.login_password = ctk.CTkEntry(login_window, show="*")
         self.login_password.pack(pady=5)
 
+        # Login button
         login_button = ctk.CTkButton(login_window, text="Login", command=self.login_user)
         login_button.pack(pady=10)
 
+        # Forget Password option
+        forget_password_button = ctk.CTkButton(login_window, text="Forget Password",
+                                               command=self.forget_password_window, fg_color="blue")
+        forget_password_button.pack(pady=5)
+
+    def forget_password_window(self):
+        """Logic for forget password option."""
+        forget_window = ctk.CTkToplevel(self)
+        forget_window.title("Reset Password")
+        forget_window.geometry("350x200")
+        forget_window.resizable(False, False)
+
+        # Theme and icon for forget password window
+        self.load_theme("theme_settings.json")
+        # self.app_icon()
+        self.apply_theme()
+
+        ctk.CTkLabel(forget_window, text="Enter your username:", text_color=self.font_color).pack(pady=10)
+        self.reset_username = ctk.CTkEntry(forget_window)
+        self.reset_username.pack(pady=5)
+
+        # Submit button to handle password reset
+        reset_button = ctk.CTkButton(forget_window, text="Reset Password", command=self.reset_password)
+        reset_button.pack(pady=20)
+
+    def reset_password(self):
+        """Handle the reset password process."""
+        username = self.reset_username.get()
+
+        cursor.execute("SELECT email FROM users WHERE username=?", (username,))
+        result = cursor.fetchone()
+
+        if result:
+            email = result[0]
+            # Simulate password reset process
+            messagebox.showinfo("Success", f"A password reset link has been sent to {email}")
+            # Logic to send reset email could be added here
+        else:
+            messagebox.showerror("Error", "Invalid username!")
+
     def login_user(self):
+        """Handle the user login logic."""
         username = self.login_username.get()
         password = self.login_password.get()
 
-        cursor.execute("SELECT password FROM users WHERE username=?", (username,))
+        # Query the hashed password instead of the password column
+        cursor.execute("SELECT hashed_password, email, phone, dob, address FROM users WHERE username=?", (username,))
         result = cursor.fetchone()
 
         if result and check_password_hash(result[0], password):
             messagebox.showinfo("Success", "Logged in successfully!")
+            self.save_login_state()
+            self.logged_in_user = username  # Save logged-in user information
+            self.user_email = result[1]  # Fetch email
+            self.user_phone = result[2]  # Fetch phone
+            self.user_dob = result[3]  # Fetch dob
+            self.user_address = result[4]  # Fetch address
+
+            # Hide the login button and show the dashboard
+            self.hide_login_menu()
+            self.show_dashboard()
         else:
             messagebox.showerror("Error", "Invalid username or password!")
 
-    def train_model(self):
-        if self.data is None:
-            messagebox.showerror("Error", "Please upload a dataset first.")
-            return
+    def check_login_state(self):
+        """Check if the user is already logged in."""
+        if os.path.exists("login_state.json"):
+            with open("login_state.json", "r") as file:
+                login_state = json.load(file)
+                if login_state.get("logged_in"):
+                    # self.welcome = ctk.CTkLabel(self.top_frame, text=f"Welcome, {self.logged_in_user}").pack(pady=10)
+                    self.save_login_state()
+
+                    return
+        self.user_login()
+
+    def save_login_state(self):
+        """Save login state to a file."""
+        login_state = {"logged_in": True}
+        with open("login_state.json", "w") as file:
+            json.dump(login_state, file)
+
+    def hide_login_menu(self):
+        """Hide login menu or button after the user is logged in."""
+        # self.login_menu.pack_forget()  # Assuming `self.login_menu` is your login menu item
+        self.menu_frame.pack_forget()
+
+    def show_dashboard(self):
+        """Display the user's dashboard after login."""
+        dashboard_window = ctk.CTkToplevel(self)
+        dashboard_window.title("User Dashboard")
+        dashboard_window.geometry("500x500")
+
+        # Frame for the profile image and user information
+        info_frame = ctk.CTkFrame(dashboard_window)
+        info_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nw")  # Positioning to the right of the image
+
+        # Check if a profile image exists, else load default image
+        if self.profile_image_path:
+            try:
+                img = self.load_images(self.profile_image_path)
+            except FileNotFoundError:
+                img = self.load_images("assets\\account.png")  # Load a default image if not found
+        else:
+            img = self.load_images("assets\\account.png")  # Default image if no image is set
+
+        # Create a label and place the image in it
+        profile_image_label = ctk.CTkLabel(info_frame, image=img, text="")
+        profile_image_label.image = img  # Keep a reference to avoid garbage collection
+        profile_image_label.grid(row=0, column=0, padx=10, pady=10, sticky="nw")  # Positioning the image
+
+        # Display user profile information using grid instead of pack
+        ctk.CTkLabel(info_frame, text=f"Welcome, {self.logged_in_user}", font=("Arial", 16)).grid(row=1, column=0,
+                                                                                                  padx=5, pady=5,
+                                                                                                  sticky="w")
+        ctk.CTkLabel(info_frame, text=f"Email: {self.user_email}").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        ctk.CTkLabel(info_frame, text=f"Phone: {self.user_phone}").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        ctk.CTkLabel(info_frame, text=f"Date of Birth: {self.user_dob}").grid(row=4, column=0, padx=5, pady=5,
+                                                                              sticky="w")
+        ctk.CTkLabel(info_frame, text=f"Location Address: {self.user_address}").grid(row=5, column=0, padx=5, pady=5,
+                                                                                     sticky="w")
+
+        # Edit profile button
+        edit_profile_button = ctk.CTkButton(dashboard_window, text="Edit Profile", command=self.edit_profile)
+        edit_profile_button.grid(row=1, column=2, padx=5, pady=5, sticky="w")  # Position below the info frame
+
+        # Logout button
+        logout_button = ctk.CTkButton(dashboard_window, text="Sign Out", command=self.logout_user)
+        logout_button.grid(row=2, column=2, padx=5, pady=5, sticky="w")
+
+    def edit_profile(self):
+        """Open a window to edit user profile information."""
+        edit_window = ctk.CTkToplevel(self)
+        edit_window.title("Edit Profile")
+        edit_window.geometry("400x400")
+
+        edit_frame = ctk.CTkScrollableFrame(edit_window, width=580, height=380)
+        edit_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ctk.CTkLabel(edit_frame, text="Profile Image").pack(pady=5)
+        self.profile_image_path = None  # Store the path of the uploaded image
+        self.profile_image_label = ctk.CTkLabel(edit_frame, text="No image selected")
+        self.profile_image_label.pack(pady=5)
+
+        # Button to upload image
+        upload_button = ctk.CTkButton(edit_frame, text="Upload Image", command=self.upload_file)
+        upload_button.pack(pady=5)
+
+        # Form for editing profile
+        ctk.CTkLabel(edit_frame, text="Email Address:").pack(pady=5)
+        self.edit_email_entry = ctk.CTkEntry(edit_frame)
+        self.edit_email_entry.insert(0, self.user_email)  # Pre-fill with current email
+        self.edit_email_entry.pack(pady=5)
+
+        ctk.CTkLabel(edit_frame, text="Phone Number:").pack(pady=5)
+        self.edit_phone_entry = ctk.CTkEntry(edit_frame)
+        self.edit_phone_entry.insert(0, self.user_phone)  # Pre-fill with current phone
+        self.edit_phone_entry.pack(pady=5)
+
+        ctk.CTkLabel(edit_frame, text="Date of Birth:").pack(pady=5)
+        self.edit_dob_entry = ctk.CTkEntry(edit_frame)
+        self.edit_dob_entry.insert(0, self.user_dob)  # Pre-fill with current DOB
+        self.edit_dob_entry.pack(pady=5)
+
+        ctk.CTkLabel(edit_frame, text="Location Address:").pack(pady=5)
+        self.edit_address_entry = ctk.CTkEntry(edit_frame)
+        self.edit_address_entry.insert(0, self.user_address)  # Pre-fill with current address
+        self.edit_address_entry.pack(pady=5)
+
+        # Save Changes Button
+        save_changes_button = ctk.CTkButton(edit_frame, text="Save Changes", command=self.save_changes)
+        save_changes_button.pack(pady=20)
+
+    def upload_file(self):
+        """Open a file dialog to select a profile image."""
+        file_path = filedialog.askopenfilename(title="Select Profile Image",
+                                               filetypes=(("Image Files", "*.png;*.jpg;*.jpeg"), ("All Files", "*.*")))
+        if file_path:
+            self.profile_image_path = file_path
+            # Update label to show the selected image path
+            self.profile_image_label.configure(text=self.profile_image_path)
+
+            # Load the image and display it
+            img = self.load_profile_image(file_path)  # Call the corrected image loader
+            if img:  # Ensure the image was loaded correctly
+                img_tk = ImageTk.PhotoImage(img)  # Convert image to Tkinter-compatible format
+
+                self.profile_image_label.config(image=img_tk, text="")
+                self.profile_image_label.image = img_tk  # Keep a reference to avoid garbage collection
+
+    def save_changes(self):
+        """Save the edited profile information to the database."""
+        new_email = self.edit_email_entry.get()
+        new_phone = self.edit_phone_entry.get()
+        new_dob = self.edit_dob_entry.get()
+        new_address = self.edit_address_entry.get()
+        # Save the profile image path if it exists
+        profile_image = self.profile_image_path if self.profile_image_path else None
 
         try:
-            features = self.data.iloc[:, :-1].values
-            labels = self.label_encoder.fit_transform(self.data.iloc[:, -1].values)
+            # Update user information in the database
+            cursor.execute("""
+                    UPDATE users SET email=?, phone=?, dob=?, address=?, profile_image=?
+                    WHERE username=?
+                """, (new_email, new_phone, new_dob, new_address, profile_image, self.logged_in_user))
+            conn.commit()
 
-            X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2)
+            # Update local user information
+            self.user_email = new_email
+            self.user_phone = new_phone
+            self.user_dob = new_dob
+            self.user_address = new_address
 
-            self.model = tf.keras.models.Sequential([
-                tf.keras.layers.Dense(128, activation="relu", input_shape=(X_train.shape[1],)),
-                tf.keras.layers.Dense(64, activation="relu"),
-                tf.keras.layers.Dense(1, activation="sigmoid")
-            ])
+            messagebox.showinfo("Success", "Profile updated successfully!")
+        except sqlite3.Error as e:
+            messagebox.showerror("Error", f"An error occurred: {e}")
 
-            self.model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-
-            def run_training():
-                self.model.fit(X_train, y_train, epochs=10, batch_size=32)
-                test_loss, test_acc = self.model.evaluate(X_test, y_test)
-                messagebox.showinfo("Training Complete", f"Test Accuracy: {test_acc:.4f}")
-
-            threading.Thread(target=run_training).start()
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to train model: {e}")
-
-    def predict_data(self):
-        if self.model is None:
-            messagebox.showerror("Error", "No model available. Train or load a model first.")
-            return
-
+    def load_profile_image(self, file_path):
+        """Load an image from the file path using PIL and return the image object."""
         try:
-            predictions = self.model.predict(self.data.iloc[:, :-1].values)
-            predictions = np.round(predictions)
-            messagebox.showinfo("Predictions", f"Predicted values: {predictions.flatten()}")
+            img = Image.open(file_path)  # Open the image file
+            img = img.resize((150, 150))  # Resize to fit the UI (optional)
+            return img
         except Exception as e:
-            messagebox.showerror("Error", f"Prediction failed: {e}")
+            print(f"Error loading image: {e}")
+            return None
 
-    def update_3d_plot(self, X, y):
-        # For simplicity, we will perform PCA to reduce dimensions to 3D
-        pca = PCA(n_components=3)
-        X_reduced = pca.fit_transform(X)
+    def logout_user(self):
+        """Log the user out and show the login menu again."""
+        self.logged_in_user = None  # Clear logged-in user information
+        if os.path.exists("login_state.json"):
+            os.remove("login_state.json")
+            self.user_login()
+            self.show_login_menu()  # Show the login menu again
+        # Close the dashboard window
 
-        self.ax_3d.clear()
-        self.ax_3d.scatter(X_reduced[:, 0], X_reduced[:, 1], X_reduced[:, 2], c=y, cmap='viridis')
-        self.ax_3d.set_title("3D Data Visualization")
-        self.canvas_3d.draw()
+    def show_login_menu(self):
+        """Show login menu or button."""
+        self.menu_frame.pack()
 
-    def predict_datas(self):
-        if self.model is None:
-            messagebox.showwarning("No Model", "Train a model first!")
-            return
-
-        # Simulate input data
-        input_data = np.random.rand(1, self.dataset.shape[1] - 1)
-        prediction = self.model.predict(input_data)
-        messagebox.showinfo("Prediction", f"Predicted Value: {prediction[0][0]}")
-
-    def save_model(self):
-        if self.model is None:
-            messagebox.showwarning("No Model", "Train a model first!")
-            return
-
-        file_path = filedialog.asksaveasfilename(defaultextension=".h5")
-        if file_path:
-            self.model.save(file_path)
-            messagebox.showinfo("Save Model", "Model saved successfully!")
-
-    def load_model(self):
-        file_path = filedialog.askopenfilename(filetypes=[("H5 files", "*.h5")])
-        if file_path:
-            self.model = tf.keras.models.load_model(file_path)
-            messagebox.showinfo("Load Model", "Model loaded successfully!")
-
-    def deploy_model(self):
-        if self.model is None:
-            messagebox.showwarning("No Model", "Train a model first!")
-            return
-
-        # Simulate deployment process
-        messagebox.showinfo("Deploy Model", "Model deployment process started. Please wait...")
-        threading.Thread(target=self.simulate_deployment).start()
-
-    def simulate_deployment(self):
-        time.sleep(2)  # Simulate time delay
-        messagebox.showinfo("Deploy Server", "Model deployed at http://localhost:8000")
-
-    def open_about_window(self):
-        """Open the About window with details about the application."""
-        about_window = ctk.CTkToplevel(self)
-        about_window.title("About")
-        about_window.geometry("600x400")
-        about_window.resizable(False, False)
-
-        # Create a scrollable frame for the content
-        canvas = ctk.CTkCanvas(about_window, width=600, height=400)
-        canvas.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ctk.CTkScrollbar(about_window, command=canvas.yview)
-        scrollbar.pack(side="right", fill="y")
-
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        # Frame to contain the about sections
-        about_frame = ctk.CTkFrame(canvas, width=580, height=800)
-        canvas.create_window((0, 0), window=about_frame, anchor="nw")
-
-        # Example sections with images and text
-        self.add_about_section(about_frame, "About the App", "ai.png",
-                               "AI Intelligent System is designed to provide users with advanced tools for AI/ML tasks.")
-
-        self.add_about_section(about_frame, "Developers", "about.png",
-                               "Developed by Slogan Technologies, aiming to revolutionize AI applications globally.")
-
-        self.add_about_section(about_frame, "Technology Stack", "chatbot.png",
-                               "Built with Python, TensorFlow, OpenCV, and CustomTkinter for a seamless user experience.")
-
-        self.add_about_section(about_frame, "Version", "ai.png",
-                               "Current Version: 1.0.0\nRelease Date: September 2024")
-
-        # Scrollable window size adjustment
-        about_frame.update_idletasks()
-        canvas.config(scrollregion=canvas.bbox("all"))
-
-    def add_about_section(self, parent_frame, section_title, image_path, description):
-        """Helper function to add sections in the About window with image and text."""
-        # Section Title
-        section_label = ctk.CTkLabel(parent_frame, text=section_title, font=("Arial", 20))
-        section_label.pack(pady=10)
-
-        # Section Image
-        image = self.load_images(image_path, size=(100, 100))  # Resize image if necessary
-        image_label = ctk.CTkLabel(parent_frame, image=image)
-        image_label.image = image  # Keep a reference to avoid garbage collection
-        image_label.pack(pady=5)
-
-        # Section Description
-        description_label = ctk.CTkLabel(parent_frame, text=description, wraplength=500, justify="left")
-        description_label.pack(pady=5)
     # Update load_image method to accept size
+    def load_image(self, path):
+        """Loads an image and converts it to a CTkImage object."""
+        img = PILImage.open(path)  # Open the image using PIL
+        return ctk.CTkImage(light_image=img, dark_image=img, size=(20, 20))
+
     def load_images(self, path, size=(20, 20)):
         img = PILImage.open(path)  # Open the image using PIL
-        img = img.resize(PILImage.HUFFMAN_ONLY)  # Resize image
+        # img = img.resize(PILImage.HUFFMAN_ONLY)  # Resize image
         return ctk.CTkImage(light_image=img, dark_image=img, size=size)
 
-
-    def run(self):
-        self.mainloop()
-
-
-class IntelligentSystemApp(ctk.CTk):
-    def __init__(self, root):
-        super().__init__()
-        self.title("Intelligent Vision")
-        self.geometry("900x600")
-        self.resizable(False, False)
-        self.root = root
-        if self.tk.call('tk', 'windowingsystem') == 'x11':  # For Linux and macOS
-            # img = Image.open("custom_icon.png")
-            img = PILImage.open("ai.png")
-            self.tk.call('wm', 'iconphoto', self._w, ImageTk.PhotoImage(img))
-        else:  # For Windows
-            self.iconbitmap("ai.ico")
-        # Variables
-        self.model_type = "MobileNetV2"  # Default to MobileNetV2
-        self.video_capture = None  # Camera object for OpenCV
-        self.pose = mp_pose.Pose()
-
-
-        self.create_ui()
-
-    def create_ui(self):
-        # Frame for camera and control buttons
-        self.bottom_frame = ctk.CTkFrame(self)
-        self.bottom_frame.pack(side="bottom", fill="x", padx=10, pady=10)
-
-        # Add Model Selection Dropdown
-        self.model_select_label = ctk.CTkLabel(self.bottom_frame, text="Select Detection Model:")
-        self.model_select_label.pack(side="left", padx=5)
-
-        self.model_selection = ctk.CTkOptionMenu(self.bottom_frame, values=["MobileNetV2", "YOLO"],
-                                                 command=self.set_model)
-        self.model_selection.pack(side="left", padx=5)
-
-        # Add Camera Functionality Buttons
-        self.btn_start_camera = ctk.CTkButton(self.bottom_frame, text="Start Camera", command=self.start_camera)
-        self.btn_start_camera.pack(side="left", padx=5)
-
-        self.btn_stop_camera = ctk.CTkButton(self.bottom_frame, text="Stop Camera", command=self.stop_camera)
-        self.btn_stop_camera.pack(side="left", padx=5)
-
-        # Optional: Add a Quit Button at the bottom right
-        self.btn_quit = ctk.CTkButton(self.bottom_frame, text="Back Home", command=self.quit_app)
-        self.btn_quit.pack(side="right", padx=5)
-
-        # Label for displaying the camera feed
-        self.camera_feed_label = ctk.CTkLabel(self, text="")
-        self.camera_feed_label.pack(expand=True, fill="both", padx=10, pady=10)
-
-    def set_model(self, model):
-        """Sets the object detection model based on user selection."""
-        self.model_type = model
-        messagebox.showinfo("Model Selected", f"{self.model_type} selected for object detection.")
-
-    def start_camera(self):
-        self.video_capture = cv2.VideoCapture(0)
-        self.camera_thread = threading.Thread(target=self.process_camera_feed)
-        self.camera_thread.start()
-
-    def stop_camera(self):
-        if self.video_capture:
-            self.video_capture.release()
-        cv2.destroyAllWindows()
-
-    def process_camera_feed(self):
-        while self.video_capture.isOpened():
-            ret, frame = self.video_capture.read()
-            if not ret:
-                break
-
-            # Detect body parts
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = self.pose.process(frame_rgb)
-            self.draw_pose_landmarks(frame, results)
-
-            # Detect objects and technologies based on selected model
-            if self.model_type == "MobileNetV2":
-                object_detections = self.detect_objects_mobilenet(frame)
-            else:  # YOLO
-                object_detections = self.detect_objects_yolo(frame)
-
-            self.draw_object_labels(frame, object_detections)
-
-            # Convert frame to ImageTk format and display
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = PILImage.fromarray(frame_rgb)  # Change CTkImage to PILImage
-            image = ImageTk.PhotoImage(image)  # Convert to ImageTk format
-            self.camera_feed_label.configure(image=image)  # Use configure instead of config
-            self.camera_feed_label.image = image  # Keep a reference to avoid garbage collection
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        self.stop_camera()
-
-    def draw_pose_landmarks(self, frame, results):
-        if results.pose_landmarks:
-            # Draw landmarks on the frame
-            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-
-            # Check if the full human view is complete
-            visibility_threshold = 0.5
-            complete_human_detected = all(
-                landmark.visibility > visibility_threshold for landmark in results.pose_landmarks.landmark
-            )
-
-            if not complete_human_detected:
-                cv2.putText(frame, "Incomplete Human View", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            else:
-                cv2.putText(frame, "Complete Human View", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-    def detect_objects_mobilenet(self, frame):
-        """Detects objects using the MobileNetV2 model."""
-        # Preprocess frame for MobileNet model
-        input_frame = cv2.resize(frame, (224, 224))
-        input_frame = tf.keras.applications.mobilenet_v2.preprocess_input(input_frame)
-        input_frame = np.expand_dims(input_frame, axis=0)
-
-        # Run the object detection model
-        predictions = MODEL_MOBILENET.predict(input_frame)
-        top_predictions = tf.keras.applications.mobilenet_v2.decode_predictions(predictions, top=5)[0]
-
-        return top_predictions
-
-    def detect_objects_yolo(self, frame):
-        """Detects objects using the YOLO model."""
-        results = YOLO_MODEL.predict(frame)
-        detections = [(res['class'], res['label'], res['confidence']) for res in results]
-        return detections
-
-    def draw_object_labels(self, frame, object_detections):
-        """Displays object detection labels on the frame."""
-        height, width, _ = frame.shape
-
-        # Display object detection results on the frame
-        for i, (class_id, label, score) in enumerate(object_detections):
-            if score > 0.5:  # Only display confident predictions
-                label_text = f"{label}: {score:.2f}"
-                y_position = 100 + i * 30
-                cv2.putText(frame, label_text, (10, y_position), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-
-    def quit_app(self):
-        if (self.stop_camera is True):
-            self.destroy()
-            self.root.deiconify()
-        else:
-            self.destroy()
-
-        #self.stop_camera()
-       # self.destroy()
-        #self.root.deiconify()
-
+    def load_profie_image(self, path):
+        """Loads an image and converts it to a CTkImage object."""
+        img = PILImage.open(path)  # Open the image using PIL
+        return ctk.CTkImage(light_image=img, dark_image=img, size=(100, 100))
 
 
 if __name__ == "__main__":
+    from main import HomeFrame
     app = AIApp()
     #app.run()
     app.mainloop()
